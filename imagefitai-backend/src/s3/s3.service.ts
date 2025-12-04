@@ -98,15 +98,21 @@ export class S3Service {
     return url;
   }
 
-  private getContentType(fileExtension: string): string {
-    const mimeTypes: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.webp': 'image/webp',
-      '.gif': 'image/gif',
-    };
+private getContentType(fileExtension: string): string {
+  const mimeTypes: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.bmp': 'image/bmp',
+    '.tiff': 'image/tiff',
+    '.tif': 'image/tiff',
+    '.ico': 'image/x-icon',
+    '.svg': 'image/svg+xml',
+    '.heic': 'image/heic',
+  };
 
-    return mimeTypes[fileExtension.toLowerCase()] || 'application/octet-stream';
-  }
+  return mimeTypes[fileExtension.toLowerCase()] || 'image/jpeg';
+}
 }

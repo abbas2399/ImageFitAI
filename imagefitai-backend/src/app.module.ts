@@ -2,6 +2,7 @@
 
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';  // ← Add this
 import { UploadsModule } from './uploads/uploads.module';
 import { JobsModule } from './jobs/jobs.module';
 import { S3Module } from './s3/s3.module';
@@ -11,13 +12,14 @@ import { FfmpegModule } from './ffmpeg/ffmpeg.module';
 @Module({
   imports: [
     ConfigModule.forRoot({
-      isGlobal: true, // Makes ConfigService available everywhere
+      isGlobal: true,
     }),
     UploadsModule,
     JobsModule,
-    S3Module,
+    S3Module,       // ← Make sure this is here
     LlmModule,
     FfmpegModule,
   ],
+  controllers: [AppController],  // ← Add this
 })
 export class AppModule {}
