@@ -96,7 +96,7 @@ export class LlmService {
   ): Promise<LLMResponse> {
     
     const model = this.genAI.getGenerativeModel({ 
-      model: "gemini-pro",
+      model: "gemini-2.5-pro",
       generationConfig: {
         temperature: 0.2,
       }
