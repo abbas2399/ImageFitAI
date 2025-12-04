@@ -1,6 +1,6 @@
 // src/llm/llm.service.ts
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { ImageMetadata } from '../ffmpeg/ffmpeg.service';
@@ -22,19 +22,16 @@ export interface LLMResponse {
 export class LlmService {
   private readonly logger = new Logger(LlmService.name);
   private readonly genAI: GoogleGenerativeAI;
-  private readonly useAI: boolean;
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('GOOGLE_API_KEY');
     
-    if (apiKey) {
-      this.genAI = new GoogleGenerativeAI(apiKey);
-      this.useAI = true;
-      this.logger.log('🤖 LLM Service initialized with Google Gemini (FREE)');
-    } else {
-      this.useAI = false;
-      this.logger.warn('⚠️  No GOOGLE_API_KEY found, using rule-based parser');
+    if (!apiKey) {
+      throw new Error('GOOGLE_API_KEY is required! Please add it to your .env file');
     }
+
+    this.genAI = new GoogleGenerativeAI(apiKey);
+    this.logger.log('🤖 LLM Service initialized with Google Gemini AI');
   }
 
   async generateCommands(
@@ -42,37 +39,94 @@ export class LlmService {
     metadata: ImageMetadata,
     inputFileName: string,
   ): Promise<LLMResponse> {
-    if (!this.useAI) {
-      this.logger.log('Using rule-based parser (no AI)');
-      return this.parseRulesAndGenerateCommands(rulesText, metadata, inputFileName);
-    }
-
+    this.logger.log('🚀 Calling Google Gemini AI...');
+    this.logger.log(`User Requirements: ${rulesText}`);
+    
     try {
-      this.logger.log('🚀 Calling Google Gemini AI...');
       const response = await this.callGemini(rulesText, metadata, inputFileName);
-      this.logger.log(`✅ AI generated ${response.commands.length} command(s)`);
+      this.logger.log(`✅ AI successfully generated ${response.commands.length} command(s)`);
       return response;
     } catch (error) {
       this.logger.error(`❌ AI call failed: ${error.message}`);
-      this.logger.log('Falling back to rule-based parser');
-      return this.parseRulesAndGenerateCommands(rulesText, metadata, inputFileName);
+      this.logger.error(error.stack);
+      
+      // Provide user-friendly error message
+      const userMessage = this.getUserFriendlyErrorMessage(error);
+      
+      throw new BadRequestException(userMessage);
     }
   }
 
-private async callGemini(
-  rulesText: string,
-  metadata: ImageMetadata,
-  inputFileName: string,
-): Promise<LLMResponse> {
-  const model = this.genAI.getGenerativeModel({ 
-    model: "gemini-2.5-pro",
-    generationConfig: {
-      temperature: 0.2, // ← Slightly higher for more creativity
-      responseMimeType: "application/json",
+  private getUserFriendlyErrorMessage(error: any): string {
+    const errorMsg = error.message.toLowerCase();
+    
+    // API key issues
+    if (errorMsg.includes('api key') || errorMsg.includes('authentication') || errorMsg.includes('401')) {
+      return '🔑 AI service authentication failed. Please contact support - our API key may need to be updated.';
     }
-  });
+    
+    // Model not found
+    if (errorMsg.includes('404') || errorMsg.includes('not found') || errorMsg.includes('model')) {
+      return '🤖 AI model is temporarily unavailable. Please try again in a few moments. If the problem persists, contact support.';
+    }
+    
+    // Rate limit
+    if (errorMsg.includes('rate limit') || errorMsg.includes('quota') || errorMsg.includes('429')) {
+      return '⏱️ Too many requests at the moment. Please wait a minute and try again.';
+    }
+    
+    // Network/timeout issues
+    if (errorMsg.includes('timeout') || errorMsg.includes('network') || errorMsg.includes('econnrefused')) {
+      return '🌐 Cannot connect to AI service. Please check your internet connection and try again.';
+    }
+    
+    // Invalid response from AI
+    if (errorMsg.includes('json') || errorMsg.includes('parse')) {
+      return '📝 AI generated an invalid response. Please try rephrasing your requirements in a simpler way.';
+    }
+    
+    // Generic error with more details
+    return `❌ AI processing failed: ${error.message}. Please try again or contact support if the problem persists.`;
+  }
 
-  const prompt = `You are an expert image processing specialist with deep knowledge of ffmpeg and image optimization for various use cases.
+  private async callGemini(
+    rulesText: string,
+    metadata: ImageMetadata,
+    inputFileName: string,
+  ): Promise<LLMResponse> {
+    
+    const model = this.genAI.getGenerativeModel({ 
+      model: "gemini-pro",
+      generationConfig: {
+        temperature: 0.2,
+      }
+    });
+
+    const prompt = this.buildPrompt(rulesText, metadata, inputFileName);
+
+    try {
+      const result = await model.generateContent(prompt);
+      const responseText = result.response.text();
+      
+      this.logger.debug(`Raw AI response: ${responseText.substring(0, 200)}...`);
+      
+      const parsedResponse = this.parseAIResponse(responseText);
+      this.validateResponse(parsedResponse);
+      
+      return parsedResponse;
+      
+    } catch (error) {
+      this.logger.error(`Gemini API error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  private buildPrompt(
+    rulesText: string,
+    metadata: ImageMetadata,
+    inputFileName: string,
+  ): string {
+    return `You are an expert image processing specialist with deep knowledge of ffmpeg and image optimization.
 
 CURRENT IMAGE METADATA:
 - Filename: ${inputFileName}
@@ -85,32 +139,31 @@ USER REQUIREMENTS:
 ${rulesText}
 
 YOUR TASK:
-Analyze the user's requirements and generate appropriate ffmpeg commands. Use your knowledge to:
+Analyze the user's requirements and generate appropriate ffmpeg commands. Use your expertise to:
 
-1. **Interpret vague requests**: If user says "for social media", "for web", "for printing", etc., apply best practices for that use case
-2. **Make intelligent defaults**: If dimensions aren't specified, choose appropriate ones based on context
-3. **Balance quality and size**: Understand the tradeoff between file size and image quality
-4. **Platform knowledge**: Know typical requirements for Instagram, LinkedIn, passport photos, government IDs, etc.
+1. **Interpret vague requests**: If user says "for social media", "for web", "for printing", apply best practices
+2. **Make intelligent defaults**: Choose appropriate dimensions based on context
+3. **Balance quality and size**: Optimize the tradeoff between file size and image quality
+4. **Platform knowledge**: Know requirements for Instagram, LinkedIn, passport photos, government IDs, etc.
 
-COMMON USE CASES & YOUR EXPERTISE:
-- **Social Media**: Square format (1080x1080 or 600x600), JPEG, <1MB
-- **Passport/ID Photos**: 600x600 or 400x400, square, JPEG, high quality
-- **Website Thumbnails**: 300x300 or 400x400, JPEG, <100KB
-- **Email-Friendly**: Reduce to 800px max dimension, JPEG, <200KB
-- **Professional/LinkedIn**: Square or 16:9, JPEG, moderate size
-- **Printing**: Maintain high resolution, less compression, PNG or high-quality JPEG
-- **Mobile**: Optimize for smaller screens, 800px max, JPEG
+COMMON USE CASES:
+- **Social Media (Instagram/Facebook)**: 1080x1080 or 600x600, JPEG, <1MB
+- **Passport/ID Photos**: 600x600, square, JPEG, high quality
+- **Website Thumbnails**: 400x400, JPEG, <100KB
+- **Email-Friendly**: Max 800px, JPEG, <200KB
+- **Professional (LinkedIn)**: Square or 16:9, JPEG, moderate size
+- **Printing**: High resolution, minimal compression, PNG or high-quality JPEG
+- **Mobile Optimized**: Max 800px, JPEG, optimized compression
 
 FFMPEG COMMAND RULES:
-1. Start with: "ffmpeg -i ${inputFileName}"
-2. Use -vf for filters: scale, pad, crop
-3. For JPEG: "-c:v mjpeg -q:v N" (2-15, lower=better)
-4. For PNG: "-c:v png"
-5. For square with padding: scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2
-6. Output: "output.[extension]"
+1. Always start with: "ffmpeg -i ${inputFileName}"
+2. Use -vf for video filters: scale, pad, crop
+3. For JPEG output: "-c:v mjpeg -q:v N" where N is 2-15 (lower = better quality)
+4. For PNG output: "-c:v png"
+5. For square images with padding: "scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:(ow-iw)/2:(oh-ih)/2"
+6. Output filename: "output.[extension]"
 
-
-RESPOND WITH THIS JSON:
+RESPOND WITH VALID JSON ONLY (no markdown, no code blocks):
 {
   "constraints": {
     "format": "jpeg",
@@ -123,147 +176,55 @@ RESPOND WITH THIS JSON:
     "ffmpeg -i ${inputFileName} -vf \\"scale=600:600:force_original_aspect_ratio=decrease,pad=600:600:(ow-iw)/2:(oh-ih)/2\\" -c:v mjpeg -q:v 8 output.jpg"
   ],
   "finalOutput": "output.jpg",
-  "summary": "A clear explanation of what you did and why, based on the user's requirements"
+  "summary": "Clear explanation of transformations applied"
 }
 
-IIMPORTANT:
-- Be intelligent and contextual
-- Only include constraints that are relevant
+CRITICAL:
+- Only include constraint fields that are mentioned or implied
 - Generate working ffmpeg commands
-- Explain your decisions in the summary
-- Return ONLY valid JSON`;
+- Ensure commands are safe
+- Provide clear summary
+- Return ONLY JSON`;
+  }
 
-  const result = await model.generateContent(prompt);
-  const responseText = result.response.text();
-  
-  this.logger.debug(`Raw AI response: ${responseText.substring(0, 200)}...`);
-  
-  const response = JSON.parse(responseText);
-  return response;
-}
+  private parseAIResponse(responseText: string): LLMResponse {
+    let cleanText = responseText.trim();
+    cleanText = cleanText.replace(/```json\n?/g, '');
+    cleanText = cleanText.replace(/```\n?/g, '');
+    cleanText = cleanText.trim();
+    
+    const jsonMatch = cleanText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('AI response does not contain valid JSON');
+    }
+    
+    try {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return parsed;
+    } catch (error) {
+      throw new Error(`Failed to parse AI response as JSON: ${error.message}`);
+    }
+  }
 
-
-  // Fallback: Rule-based parser (same as before)
-  private parseRulesAndGenerateCommands(
-    rulesText: string,
-    metadata: ImageMetadata,
-    inputFileName: string,
-  ): LLMResponse {
-    const rules = rulesText.toLowerCase();
-    const constraints: any = {};
-    const commands: string[] = [];
-    let outputFileName = 'output.jpg';
-
-    // Parse format requirement
-    if (rules.includes('jpeg') || rules.includes('jpg')) {
-      constraints.format = 'jpeg';
-      outputFileName = 'output.jpg';
-    } else if (rules.includes('png')) {
-      constraints.format = 'png';
-      outputFileName = 'output.png';
-    } else if (rules.includes('webp')) {
-      constraints.format = 'webp';
-      outputFileName = 'output.webp';
+  private validateResponse(response: any): void {
+    if (!response.commands || !Array.isArray(response.commands) || response.commands.length === 0) {
+      throw new Error('AI response missing valid commands');
     }
 
-    // Parse size requirement
-    const sizeMatch = rules.match(/(?:max|under|less than|below)\s+(\d+)\s*kb/i);
-    if (sizeMatch) {
-      constraints.maxSize = parseInt(sizeMatch[1]);
+    if (!response.finalOutput || typeof response.finalOutput !== 'string') {
+      throw new Error('AI response missing valid output filename');
     }
 
-    // Parse dimension requirements
-    const dimensionMatch = rules.match(/(\d+)\s*[x×]\s*(\d+)/);
-    if (dimensionMatch) {
-      constraints.width = parseInt(dimensionMatch[1]);
-      constraints.height = parseInt(dimensionMatch[2]);
+    if (!response.summary || typeof response.summary !== 'string') {
+      throw new Error('AI response missing valid summary');
     }
 
-    // Parse aspect ratio
-    const aspectMatch = rules.match(/(?:aspect ratio|ratio)\s+(\d+):(\d+)/i);
-    if (aspectMatch) {
-      constraints.aspectRatio = `${aspectMatch[1]}:${aspectMatch[2]}`;
-    }
-
-    // Build ffmpeg command
-    let command = `ffmpeg -i ${inputFileName}`;
-    const filters: string[] = [];
-
-    if (constraints.width && constraints.height) {
-      if (constraints.aspectRatio) {
-        filters.push(
-          `scale=${constraints.width}:${constraints.height}:force_original_aspect_ratio=decrease`,
-        );
-        filters.push(
-          `pad=${constraints.width}:${constraints.height}:(ow-iw)/2:(oh-ih)/2`,
-        );
-      } else {
-        filters.push(`scale=${constraints.width}:${constraints.height}`);
+    for (const command of response.commands) {
+      if (!command.startsWith('ffmpeg -i')) {
+        throw new Error(`Invalid ffmpeg command generated`);
       }
     }
 
-    if (filters.length > 0) {
-      command += ` -vf "${filters.join(',')}"`;
-    }
-
-    if (constraints.format === 'jpeg') {
-      command += ' -c:v mjpeg';
-      if (constraints.maxSize) {
-        const quality = this.calculateJpegQuality(constraints.maxSize);
-        command += ` -q:v ${quality}`;
-      }
-    } else if (constraints.format === 'png') {
-      command += ' -c:v png';
-    } else if (constraints.format === 'webp') {
-      command += ' -c:v libwebp';
-    }
-
-    command += ` ${outputFileName}`;
-    commands.push(command);
-
-    const summary = this.generateSummary(metadata, constraints, outputFileName);
-
-    return {
-      constraints,
-      commands,
-      finalOutput: outputFileName,
-      summary,
-    };
-  }
-
-  private calculateJpegQuality(targetSizeKB: number): number {
-    if (targetSizeKB < 50) return 15;
-    if (targetSizeKB < 100) return 10;
-    if (targetSizeKB < 200) return 7;
-    if (targetSizeKB < 500) return 5;
-    return 3;
-  }
-
-  private generateSummary(
-    originalMetadata: ImageMetadata,
-    constraints: any,
-    outputFileName: string,
-  ): string {
-    const parts: string[] = [];
-
-    if (constraints.format) {
-      parts.push(`Converted to ${constraints.format.toUpperCase()}`);
-    }
-
-    if (constraints.width && constraints.height) {
-      parts.push(
-        `Resized from ${originalMetadata.width}x${originalMetadata.height} to ${constraints.width}x${constraints.height}`,
-      );
-    }
-
-    if (constraints.maxSize) {
-      parts.push(`Compressed to meet ${constraints.maxSize}KB size limit`);
-    }
-
-    if (constraints.aspectRatio) {
-      parts.push(`Adjusted to ${constraints.aspectRatio} aspect ratio`);
-    }
-
-    return parts.join(', ') + '.';
+    this.logger.log('✓ AI response validation passed');
   }
 }
