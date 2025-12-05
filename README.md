@@ -49,6 +49,7 @@ Ensure you have the following installed locally:
     # or yarn install
     ```
 
+
 3.  **Configure Environment Variables:**
     Create a file named `.env` in the root of your project directory. This file will store your sensitive keys safely, outside of Git tracking. Add your *newly regenerated* AWS credentials:
 
@@ -66,6 +67,12 @@ Ensure you have the following installed locally:
     # or yarn start
     ```
 
+5. **Current Working Tools**
+    Utilizing Gemini-2.5-pro for now.
+
+6. **Sample Result**
+    <img src="./sample_working1.png" alt="Application Screenshot" width="600" />
+
 ---
 
 ## 💡 Usage
@@ -79,6 +86,7 @@ Navigate to `http://localhost:3000` in your web browser. Use the provided upload
 *   **Frontend:** React (likely), HTML5, CSS3
 *   **Backend:** Node.js, Express.js
 *   **Storage:** Amazon AWS S3
+*   **LLM Model:** Gemini-2.5-pro
 *   **Version Control:** Git & GitHub
 
 ---
@@ -99,6 +107,4 @@ Contributions are welcome! If you find a bug or have an enhancement idea, please
 
 This project is licensed under the **MIT License**. See the `LICENSE` file for more details.
 
----
 
-Do you need instructions on how to make sure your `.env` file is properly added to **`.gitignore`**?
