@@ -170,7 +170,8 @@ RESPOND WITH VALID JSON ONLY (no markdown, no code blocks):
     "width": 600,
     "height": 600,
     "maxSize": 200,
-    "aspectRatio": "1:1"
+    "aspectRatio": "1:1",
+    "backgroundColor": "white"
   },
   "commands": [
     "ffmpeg -i ${inputFileName} -vf \\"scale=600:600:force_original_aspect_ratio=decrease,pad=600:600:(ow-iw)/2:(oh-ih)/2\\" -c:v mjpeg -q:v 8 output.jpg"
