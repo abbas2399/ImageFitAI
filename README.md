@@ -67,10 +67,10 @@ Ensure you have the following installed locally:
     # or yarn start
     ```
 
-5. **Current Working Tools**
-    Utilizing Gemini-2.5-pro for now.
+5. **Currently utilizing Gemini-2.5-pro for now**.
 
-6. **Sample Result**
+6. **Example:**
+   <br></br>
     <img src="./sample_working1.png" alt="Application Screenshot" width="600" />
 
 ---
