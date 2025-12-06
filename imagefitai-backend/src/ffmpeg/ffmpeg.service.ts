@@ -19,9 +19,6 @@ export interface ImageMetadata {
 export class FfmpegService {
   private readonly logger = new Logger(FfmpegService.name);
 
-  /**
-   * Extract metadata from an image using ffprobe
-   */
   async extractMetadata(imagePath: string): Promise<ImageMetadata> {
     try {
       const command = `ffprobe -v quiet -print_format json -show_format -show_streams "${imagePath}"`;
@@ -60,17 +57,36 @@ export class FfmpegService {
       return false;
     }
 
-    // Check for dangerous characters
-    const dangerousPatterns = [';', '&&', '||', '|', '>', '<', '`', '$', '\\'];
+    // Check for dangerous characters/patterns
+    const dangerousPatterns = [
+      ';',      // Command chaining
+      '&&',     // Command chaining
+      '||',     // Command chaining
+      '|',      // Piping (but allow in quotes)
+      '>',      // Redirection
+      '<',      // Redirection
+      '`',      // Command substitution
+      '$(',     // Command substitution
+      '${',     // Variable expansion
+      '\n',     // Newline
+      '\r',     // Carriage return
+    ];
+
     for (const pattern of dangerousPatterns) {
+      // Skip pipe check if it's within quotes (part of filter)
+      if (pattern === '|' && command.includes('"') && command.indexOf('|') > command.indexOf('"')) {
+        continue;
+      }
+      
       if (command.includes(pattern)) {
         this.logger.warn(`Command contains dangerous pattern "${pattern}": ${command}`);
         return false;
       }
     }
 
-    // Check for absolute paths (we want relative paths only)
-    if (command.match(/\/[a-zA-Z0-9_\-\/]+/) && !command.includes('./')) {
+    // Check for absolute paths starting with / (but allow relative paths)
+    const absolutePathRegex = /\s\/[a-zA-Z]/;
+    if (absolutePathRegex.test(command)) {
       this.logger.warn(`Command contains absolute path: ${command}`);
       return false;
     }
@@ -78,9 +94,6 @@ export class FfmpegService {
     return true;
   }
 
-  /**
-   * Execute a single ffmpeg command in a sandbox directory
-   */
   async executeCommand(
     command: string,
     workingDirectory: string,
@@ -97,7 +110,7 @@ export class FfmpegService {
       const { stdout, stderr } = await execPromise(command, {
         cwd: workingDirectory,
         timeout: timeoutSeconds * 1000,
-        maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        maxBuffer: 10 * 1024 * 1024,
       });
 
       if (stderr) {
@@ -111,9 +124,6 @@ export class FfmpegService {
     }
   }
 
-  /**
-   * Execute multiple ffmpeg commands sequentially
-   */
   async executeCommands(
     commands: string[],
     workingDirectory: string,
@@ -128,79 +138,100 @@ export class FfmpegService {
     this.logger.log(`All commands executed successfully`);
   }
 
-  /**
-   * Validate that output file meets constraints
-   */
   async validateOutput(
-    outputPath: string,
-    constraints: any,
-  ): Promise<{ valid: boolean; errors: string[] }> {
-    const errors: string[] = [];
+  outputPath: string,
+  constraints: any,
+): Promise<{ valid: boolean; errors: string[] }> {
+  const errors: string[] = [];
 
-    try {
-      const metadata = await this.extractMetadata(outputPath);
+  try {
+    const metadata = await this.extractMetadata(outputPath);
 
-      // Check format
-      if (constraints.format) {
-        const expectedFormat = constraints.format.toLowerCase();
-        const actualFormat = metadata.format.toLowerCase();
-        
+    // Check format - normalize jpg/jpeg
+    if (constraints.format) {
+      const expectedFormat = constraints.format.toLowerCase();
+      let actualFormat = metadata.format.toLowerCase();
+      
+      // Normalize jpeg variants
+      if (expectedFormat === 'jpeg' || expectedFormat === 'jpg') {
+        // Accept both mjpeg, jpeg, jpg, image2
+        if (actualFormat.includes('jpeg') || actualFormat.includes('jpg') || actualFormat === 'image2') {
+          // Format is correct, no error
+        } else {
+          errors.push(
+            `Format mismatch: expected ${expectedFormat}, got ${actualFormat}`,
+          );
+        }
+      } else if (expectedFormat === 'png') {
+        if (!actualFormat.includes('png')) {
+          errors.push(
+            `Format mismatch: expected ${expectedFormat}, got ${actualFormat}`,
+          );
+        }
+      } else if (expectedFormat === 'webp') {
+        if (!actualFormat.includes('webp')) {
+          errors.push(
+            `Format mismatch: expected ${expectedFormat}, got ${actualFormat}`,
+          );
+        }
+      } else {
+        // Generic check
         if (!actualFormat.includes(expectedFormat)) {
           errors.push(
             `Format mismatch: expected ${expectedFormat}, got ${actualFormat}`,
           );
         }
       }
-
-      // Check dimensions
-      if (constraints.width && metadata.width !== constraints.width) {
-        errors.push(
-          `Width mismatch: expected ${constraints.width}, got ${metadata.width}`,
-        );
-      }
-
-      if (constraints.height && metadata.height !== constraints.height) {
-        errors.push(
-          `Height mismatch: expected ${constraints.height}, got ${metadata.height}`,
-        );
-      }
-
-      // Check file size (convert KB to bytes)
-      if (constraints.maxSize) {
-        const maxSizeBytes = constraints.maxSize * 1024;
-        if (metadata.size > maxSizeBytes) {
-          errors.push(
-            `File size exceeds limit: ${(metadata.size / 1024).toFixed(2)}KB > ${constraints.maxSize}KB`,
-          );
-        }
-      }
-
-      // Check aspect ratio
-      if (constraints.aspectRatio) {
-        const [expectedWidth, expectedHeight] = constraints.aspectRatio
-          .split(':')
-          .map(Number);
-        const expectedRatio = expectedWidth / expectedHeight;
-        const actualRatio = metadata.width / metadata.height;
-
-        // Allow small tolerance (0.01)
-        if (Math.abs(expectedRatio - actualRatio) > 0.01) {
-          errors.push(
-            `Aspect ratio mismatch: expected ${constraints.aspectRatio}, got ${actualRatio.toFixed(2)}`,
-          );
-        }
-      }
-
-      return {
-        valid: errors.length === 0,
-        errors,
-      };
-    } catch (error) {
-      this.logger.error(`Validation failed: ${error.message}`);
-      return {
-        valid: false,
-        errors: [`Validation error: ${error.message}`],
-      };
     }
+
+    // Check dimensions
+    if (constraints.width && metadata.width !== constraints.width) {
+      errors.push(
+        `Width mismatch: expected ${constraints.width}, got ${metadata.width}`,
+      );
+    }
+
+    if (constraints.height && metadata.height !== constraints.height) {
+      errors.push(
+        `Height mismatch: expected ${constraints.height}, got ${metadata.height}`,
+      );
+    }
+
+    // Check file size (convert KB to bytes)
+    if (constraints.maxSize) {
+      const maxSizeBytes = constraints.maxSize * 1024;
+      if (metadata.size > maxSizeBytes) {
+        errors.push(
+          `File size exceeds limit: ${(metadata.size / 1024).toFixed(2)}KB > ${constraints.maxSize}KB`,
+        );
+      }
+    }
+
+    // Check aspect ratio
+    if (constraints.aspectRatio) {
+      const [expectedWidth, expectedHeight] = constraints.aspectRatio
+        .split(':')
+        .map(Number);
+      const expectedRatio = expectedWidth / expectedHeight;
+      const actualRatio = metadata.width / metadata.height;
+
+      // Allow small tolerance (0.01)
+      if (Math.abs(expectedRatio - actualRatio) > 0.01) {
+        errors.push(
+          `Aspect ratio mismatch: expected ${constraints.aspectRatio}, got ${actualRatio.toFixed(2)}`,
+        );
+      }
+    }
+
+    return {
+      valid: errors.length === 0,
+      errors,
+    };
+  } catch (error) {
+    this.logger.error(`Validation failed: ${error.message}`);
+    return {
+      valid: false,
+      errors: [`Validation error: ${error.message}`],
+    };
   }
-}
+}}

@@ -13,29 +13,27 @@ const FileUpload = ({ onFileSelect }: FileUploadProps) => {
   const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
   const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setError('');
-    
-    const file = event.target.files?.[0];
-    
-    if (!file) {
-      return;
-    }
+  // Replace ALLOWED_TYPES with:
+ const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  setError('');
+  const file = event.target.files?.[0];
+  
+  if (!file) return;
 
-    // Validate file type
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setError('Please select a valid image file (JPEG, PNG, or WebP)');
-      return;
-    }
+  // Accept ANY image format
+  if (!file.type.startsWith('image/')) {
+    setError('Please select an image file (any format)');
+    return;
+  }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      setError('File size must be less than 50MB');
-      return;
-    }
+  // Size check
+  if (file.size > MAX_FILE_SIZE) {
+    setError('File size must be less than 50MB');
+    return;
+  }
 
-    setSelectedFile(file);
-    onFileSelect(file);
+  setSelectedFile(file);
+  onFileSelect(file);
   };
 
   return (
