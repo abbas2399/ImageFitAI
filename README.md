@@ -67,7 +67,7 @@ Ensure you have the following installed locally:
     # or yarn start
     ```
 
-5. **Currently utilizing Gemini-2.5-pro for now**.
+5. **LLM Model: Gemini-2.5-pro**.
 
 6. **Example:**
    <br></br>
